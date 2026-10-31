@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/vlm-banner.png" alt="Vision–language model architecture" width="100%" />
+</p>
+
 # Vision–Language Model in PyTorch
 
 A CLIP-style model trained from scratch with a CNN + vision transformer and a causal text transformer. Uses the `openai/clip-vit-base-patch32` tokenizer; no pretrained model weights.
@@ -17,6 +21,10 @@ L2 normalization → image/text similarity → symmetric multi-positive loss
 ```
 
 The vision encoder requires width 256 and 49 patch tokens. Text head count, depth and context length are configurable in `config.yaml`.
+
+<p align="center">
+  <img src="assets/TextTransformer.svg" alt="Text transformer architecture" width="360" />
+</p>
 
 ## Setup
 
