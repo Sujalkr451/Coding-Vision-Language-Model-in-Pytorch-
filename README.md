@@ -12,7 +12,7 @@
 
 ## About
 
-A learning project for implementing the pieces of a vision–language model in PyTorch. The current work explores a lightweight convolutional image encoder, the beginnings of multi-head attention, and a synthetic dataset of colored shapes paired with captions.
+A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes convolutional image features, patch tokenization, custom multi-head self-attention, an MLP, and a transformer encoder block, alongside a synthetic dataset of colored shapes paired with captions.
 
 The intended direction is a CLIP-style model that maps images and text into a shared embedding space. **The full model and training pipeline are not implemented yet.**
 
@@ -20,8 +20,8 @@ The intended direction is a CLIP-style model that maps images and text into a sh
 
 | File | Current content |
 | --- | --- |
-| [`src/model.py`](src/model.py) | `ImageFeatureMap`: standard, depthwise, and pointwise convolutions. `MemeTransformer`: patch embedding and partial Q/K/V attention code. |
-| [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb) | Synthetic image generation, image–caption dataset, vocabulary construction, and text tokenization. |
+| [`src/model.py`](src/model.py) | `ImageFeatureMap`, `PatchEmbedding`, `MultiHeadAttention`, `MLP`, and a pre-norm `TransformerEncoder` block with residual connections. |
+| [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb) | Synthetic dataset, vocabulary and tokenization, train/validation loaders, a CNN image encoder prototype, a text encoder scaffold, and an image features → patches → attention experiment. |
 | [`src/dataloader.py`](src/dataloader.py) | Initial PyTorch data-loading imports. |
 | [`src/clip_loss.py`](src/clip_loss.py) | Empty placeholder for contrastive loss. |
 | [`src/train.py`](src/train.py) | Empty placeholder for training. |
@@ -36,13 +36,26 @@ Image → Convolutional features → Patch tokens → Image encoder ─┐
 Caption → Token IDs → Text encoder ───────────────────────────┘
 ```
 
-This describes the intended pipeline. The source currently contains the convolutional layers and an attention scaffold; the text encoder, shared projections, loss, and training loop still need to be built.
+This describes the intended pipeline. The image-side building blocks now have forward passes, but still need to be assembled into a complete encoder with positional information and a pooled image embedding. The text encoder, paired projection heads, contrastive loss, and training loop remain unfinished.
 
 ### Image encoder work
 
-`ImageFeatureMap` starts with a 3 → 32 channel convolution, then uses depthwise and pointwise convolutions to reach 256 channels. `MemeTransformer` defines a 4 × 4 patch convolution, Q/K/V linear projections, and head reshaping with defaults of 1,024 embedding dimensions and 16 heads.
+`ImageFeatureMap` starts with a 3 → 32 channel convolution, then uses depthwise and pointwise convolutions to reach 256 channels. Its forward pass returns the feature map. `PatchEmbedding` applies a 4 × 4 convolution with stride 4 and converts the result into `[batch, tokens, 256]` sequences.
 
-These components are still under construction: `ImageFeatureMap.forward` does not return its output, and `MemeTransformer` does not yet compute attention or return a result. Its positional embedding also needs a floating-point initialization, and the patch features need to be connected to the attention input.
+`MultiHeadAttention` implements Q/K/V projections, scaled dot-product attention, attention dropout, head concatenation, and an output projection with dropout. The defaults are **256 embedding dimensions and 4 heads**.
+
+`MLP` expands the embedding dimension by a factor of 4, applies GELU, and projects back to 256 dimensions. `TransformerEncoder` combines pre-attention and pre-MLP layer normalization with residual connections around both sublayers.
+
+For a **224 × 224** input, the default components have these tensor shapes:
+
+```text
+[B, 3, 224, 224]
+  → ImageFeatureMap    → [B, 256, 28, 28]
+  → PatchEmbedding     → [B, 49, 256]
+  → TransformerEncoder → [B, 49, 256]
+```
+
+The notebook also contains an earlier CNN image encoder prototype that produces normalized 64-dimensional embeddings. Its `TextEncoder` currently declares layers but leaves `forward` unimplemented.
 
 ### Synthetic image–caption data
 
@@ -53,6 +66,8 @@ The notebook generates **243 pairs** from every combination of:
 - **9 positions:** left, center, right, top, bottom, and the four corners.
 
 Images are drawn at **64 × 64** pixels using Pillow and converted to channel-first float tensors scaled to `[0, 1]`. Captions such as `red circle top-left` are split into words and prepended with a `[CLS]` token. No external dataset download is needed for this experiment.
+
+The notebook splits the dataset into **194 training pairs and 49 validation pairs**, with a batch size of 12. Its separate attention experiment uses random 224 × 224 inputs.
 
 ## Explore locally
 
@@ -75,9 +90,11 @@ There is no training command, trained checkpoint, or evaluation result yet; runn
 
 - [x] Generate synthetic shapes with matching captions.
 - [x] Build a vocabulary and encode captions.
-- [x] Define the convolutional image feature layers.
-- [ ] Finish and validate the image encoder's forward pass.
-- [ ] Complete patch tokenization, positional embeddings, and multi-head attention.
+- [x] Create train/validation splits and data loaders in the notebook.
+- [x] Implement the convolutional feature map and its forward pass.
+- [x] Implement patch tokenization and custom multi-head self-attention.
+- [x] Add a GELU MLP and a pre-norm transformer encoder block with residual connections.
+- [ ] Add positional embeddings and assemble the complete image encoder.
 - [ ] Implement a text encoder and shared embedding projections.
 - [ ] Add contrastive loss and a training loop.
 - [ ] Evaluate image–text matching and retrieval.
