@@ -17,10 +17,11 @@ runs = modal.Volume.from_name('clip-runs', create_if_missing=True)
 
 
 @app.function(cpu=16, memory=32768, timeout=86400, volumes={'/data': data})
-def prepare(max_metadata_files: int = 0):
+def prepare(max_metadata_files: int = 0, dataset: str = 'pd12m'):
     from src.prepare_data import prepare as build
     try:
-        return build('/data/datacomp_small', max_metadata_files or None, '/data/evaluation/exclusions.json', max_pairs=512 if max_metadata_files else None)
+        return build(f'/data/{dataset}', max_metadata_files or None, '/data/evaluation/exclusions.json',
+                     max_pairs=512 if max_metadata_files else None, dataset=dataset)
     finally:
         data.commit()
 
@@ -51,7 +52,9 @@ def evaluate_weights():
     from src.checkpoint import load_inference
     from src.eval import evaluate_retrieval
     from src.dataset import atomic_json
-    model = load_inference('/runs/clip/checkpoints/best_inference.pth', 'cuda')
+    from src.train import load_config
+    settings = load_config('/app/config.yaml')
+    model = load_inference(str(Path(settings['output_dir']) / 'best_inference.pth'), 'cuda')
     result = evaluate_retrieval(model, '/data/evaluation/test.json', 'cuda', cache_dir='/data/tokenizer')
     atomic_json('/runs/evaluation/test.json', result)
     runs.commit()
@@ -68,8 +71,8 @@ def launch(config_json, gpus, mode, resume):
         config['training'].update(batch_size_per_gpu=8, num_workers=2, max_steps=10,
                                   max_runtime_seconds=1200, allow_small_dataset=True,
                                   checkpoint_steps=5)
-        config['dataset']['index_dir'] = '/data/datacomp_small/index-first-1-limit-512'
-        config['output_dir'] = f'/runs/{mode}-{gpus}/checkpoints'
+        config['dataset']['index_dir'] = f"/data/{config['dataset']['name']}/index-first-1-limit-512"
+        config['output_dir'] = f"/runs/{config['dataset']['name']}-{mode}-{gpus}/checkpoints"
     elif mode != 'train':
         raise ValueError(mode)
     target = Path(config['output_dir'])
@@ -105,7 +108,7 @@ def train_four(config_json: str, mode: str, resume: bool):
 
 @app.local_entrypoint()
 def main(stage: str = 'train', num_gpus: int = 4, resume: bool = False,
-         approve_full_run: bool = False, config: str = 'config.yaml'):
+         approve_full_run: bool = False, config: str = 'config.yaml', dataset: str = ''):
     if stage not in ('evaluate', 'benchmark', 'prepare-eval', 'prepare', 'prepare-full', 'prepare-pilot', 'smoke', 'train'):
         raise ValueError('Choose prepare-eval, prepare, prepare-pilot, smoke, benchmark, train, or evaluate')
     if stage in ('train', 'prepare', 'prepare-full') and not approve_full_run:
@@ -120,7 +123,11 @@ def main(stage: str = 'train', num_gpus: int = 4, resume: bool = False,
         print(prepare_evaluation.remote())
         return
     if stage.startswith('prepare'):
-        print(prepare.remote(1 if stage == 'prepare-pilot' else 0))
+        import yaml
+        selected = dataset or yaml.safe_load(Path(config).read_text())['dataset']['name']
+        if selected not in ('datacomp_small', 'pd12m'):
+            raise ValueError('dataset must be datacomp_small or pd12m')
+        print(prepare.remote(1 if stage == 'prepare-pilot' else 0, selected))
         return
     if num_gpus not in (1, 4):
         raise ValueError('Modal launcher supports 1 or 4 H100s; local torchrun supports other counts')

@@ -25,19 +25,19 @@ training:
   max_runtime_seconds: 82800
   allow_small_dataset: false
 dataset:
-  name: datacomp_small
-  source_url: https://huggingface.co/datasets/mlfoundations/datacomp_small
-  metadata_url: https://huggingface.co/datasets/mlfoundations/datacomp_small/tree/main
-  target_pairs: 12800000
+  name: pd12m
+  source_url: https://huggingface.co/datasets/Spawning/PD12M
+  metadata_url: https://huggingface.co/datasets/Spawning/PD12M/tree/main
+  target_pairs: 12400094
   minimum_usable_pairs: 3000000
   image_size: 224
   context_length: 77
-  index_dir: /data/datacomp_small/index
+  index_dir: /data/pd12m/index
   tokenizer_cache: /data/tokenizer
 evaluation:
   validation_manifest: /data/evaluation/val.json
   test_manifest: /data/evaluation/test.json
-output_dir: /runs/clip/checkpoints
+output_dir: /runs/pd12m/checkpoints
 modal:
   gpu: H100
   num_gpus: 4

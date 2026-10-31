@@ -10,13 +10,16 @@
   <img src="https://img.shields.io/badge/status-work_in_progress-e9b44c?style=flat-square" alt="Work in progress" />
 </p>
 
-## Large training dataset — DataComp Small (12.8M pairs)
+## Large training dataset — PD12M (12.4M pairs)
 
-- **Dataset:** [mlfoundations/datacomp_small](https://huggingface.co/datasets/mlfoundations/datacomp_small)
-- **Downloadable metadata:** [Parquet file list](https://huggingface.co/datasets/mlfoundations/datacomp_small/tree/main)
-- **Upstream download instructions:** [DataComp CommonPool](https://github.com/mlfoundations/datacomp#downloading-commonpool)
+- **Dataset:** [Spawning/PD12M](https://huggingface.co/datasets/Spawning/PD12M)
+- **Caption metadata:** [metadata Parquet files](https://huggingface.co/datasets/Spawning/PD12M/tree/main/metadata)
+- **Actual images:** [public AWS S3 bucket](https://registry.opendata.aws/pd12m/)
+- **Publisher download instructions:** [PD12M images tutorial](https://huggingface.co/datasets/Spawning/PD12M/blob/main/tutorials/images.md)
 
-This is the real image–caption corpus configured for this VLM. The metadata provides image URLs; preparation downloads the available images into reusable tar shards. Actual usable counts are audited before training. The main Modal launcher has **no synthetic training stage**.
+PD12M contains real public-domain/CC0 images with machine-generated captions. The images are already hosted in a dedicated S3 bucket, rather than fetched from thousands of original websites. Images still need downloading, resizing, auditing and sharding; metadata alone is not the image dataset. Your original model architecture is unchanged.
+
+A 512-record acquisition pilot completed in **35.6 seconds of downloader wall time** with **512 usable pairs** (509 train / 3 internal validation). The earlier DataComp pilot took about 121 seconds and yielded 320 usable pairs. This sample supports switching to PD12M; it is not a full-corpus speed guarantee. The original DataComp job was stopped and its downloaded shards retained separately.
 
 ```bash
 # Prepare held-out evaluation data once:
@@ -41,7 +44,7 @@ The earlier measured throughput predates these optimizations. No additional GPU 
 
 This project trains the original PyTorch encoders **from scratch**: a CNN feature extractor and 12-layer vision transformer, a 6-layer causal text transformer, 256-dimensional projections, 224 × 224 images, and 77-token captions. Only the `openai/clip-vit-base-patch32` **tokenizer** is downloaded; no pretrained CLIP model weights are used.
 
-The pipeline supports local execution and single-node PyTorch DDP on one or four Modal H100 80GB GPUs. Large-scale training has **not** been launched. Full preparation and training require `--approve-full-run`.
+The pipeline supports local execution and single-node PyTorch DDP on one or four Modal H100 80GB GPUs. Full PD12M dataset preparation has been launched; large-scale GPU training has **not** started. Full preparation and training require `--approve-full-run`.
 
 ### Repository layout
 
@@ -52,7 +55,7 @@ The pipeline supports local execution and single-node PyTorch DDP on one or four
 | [`src/cache_tokens.py`](src/cache_tokens.py) | Restartable, one-time caption tokenization into compact on-disk arrays. |
 | [`src/tokenization.py`](src/tokenization.py) | Lazy, cached CLIPTokenizer with truncation, padding, and vocabulary checks. |
 | [`src/clip_loss.py`](src/clip_loss.py) | Symmetric CLIP loss, differentiable distributed gathering, duplicate positives. |
-| [`src/prepare_data.py`](src/prepare_data.py) | Pinned DataComp metadata, bounded URL downloading, retries and resume. |
+| [`src/prepare_data.py`](src/prepare_data.py) | Pinned PD12M/DataComp source adapters, bounded image downloading, retries and resume. |
 | [`src/dataset.py`](src/dataset.py) | Tar audit, disk-backed deduplication, compact offset indices, preprocessing. |
 | [`src/dataloader.py`](src/dataloader.py) | Disjoint distributed sampling, deterministic batches, cached tokenization. |
 | [`src/train.py`](src/train.py) | AdamW, warmup/cosine schedule, BF16, accumulation, clipping, monitoring. |
@@ -66,7 +69,6 @@ The pipeline supports local execution and single-node PyTorch DDP on one or four
 | [`src/plot_history.py`](src/plot_history.py) | Export loss and retrieval curves from persistent logs. |
 | [`src/smoke_fixture.py`](src/smoke_fixture.py) | Synthetic infrastructure fixture; never the main training dataset. |
 | [`modal_train.py`](modal_train.py), [`config.yaml`](config.yaml) | Modal stages and configurable training settings. |
-| [`tests/`](tests/) | Architecture, loss, data, retrieval, checkpoint, training and DDP checks. |
 
 The original notebook remains in [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb). Its small word-level tokenizer and unfinished prototype text encoder are separate experiments; training uses `src/`.
 
@@ -99,27 +101,27 @@ Use Python 3.11. Create a fresh virtual environment for the pinned runtime:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt pytest==8.3.5
-python -m pytest tests/test_pipeline.py -q
-python -m tests.ddp_worker --file-rendezvous
+python -m compileall -q src modal_train.py
 python -c "from src.tokenization import tokenize; print(tokenize(['a red square'], cache_dir='data/tokenizer').shape)"
-python -m tests.resume_check
 ```
 
-The file-rendezvous DDP test runs two CPU processes, compares both unique-positive and duplicate-positive gradients to a full-batch reference, and avoids hostname resolution dependencies. The resume integration check uses a short one-layer configuration; the architecture test separately checks the original full 12/6-layer encoders.
+The model and data pipeline were previously exercised by local and Modal smoke tests. For this dataset switch, the real 512-image PD12M pilot exercised acquisition, audit and token caching; focused source-adapter checks cover both metadata schemas.
 
 For dataset preparation outside Modal, install `requirements-prep.txt` too. Run modules from the repository root with `python -m src.<module>`.
 
-## Dataset: DataComp Small
+## Dataset: PD12M
 
-The primary source is [DataComp Small / CommonPool](https://huggingface.co/datasets/mlfoundations/datacomp_small), nominally **12.8 million URL–caption records**. Its public Parquet metadata contains `url`, `text`, `uid`, source hashes and face boxes. Metadata is **not downloaded images**, and live URL attrition means usable pairs will be fewer than 12.8M.
+The configured primary source is [PD12M](https://huggingface.co/datasets/Spawning/PD12M), nominally **12,400,094 image–caption records**. Only `metadata/*.parquet` files are downloaded from Hugging Face; pretrained CLIP embedding files are excluded. The metadata revision is pinned for resume. Fields `caption`, `id`, and `hash` are normalized to the loader schema, while original source and image-license metadata are retained.
 
-The [official downloader](https://github.com/mlfoundations/datacomp/blob/main/download_upstream.py) uses img2dataset and WebDataset tar output. This implementation follows that route, pins the metadata revision, preserves face-box blurring and default publisher opt-out headers, and keeps shards on `clip-data`. Metadata is labeled CC-BY-4.0; this does not relicense third-party images. Review original image rights and [DataComp documentation](https://github.com/mlfoundations/datacomp) for the intended use. Public metadata currently needs no access approval; unreachable image URLs are recorded as failures, never assumed usable. No alternative corpus is silently substituted.
+PD12M uses real images and automatically generated captions. The dataset is licensed under CDLA-Permissive-2.0, and its publisher identifies the images as public-domain/CC0. The imagery and captions differ from DataComp, so faster acquisition does not establish equal retrieval performance. Image downloads use the publisher's public S3 URLs; they are not prebuilt WebDataset tar downloads. Full usable counts are measured after acquisition and deduplication, not assumed from the source row count.
+
+DataComp remains available explicitly with `--dataset datacomp_small`; its existing cache is preserved under `/data/datacomp_small`. PD12M uses `/data/pd12m`, and their shards/checkpoints are never mixed.
 
 Preparation uses bounded parallel downloads, 15-second timeouts, two retries, and incremental shard recovery. Tar auditing decodes images, filters held-out hashes/URLs, deduplicates exact decoded-image/caption pairs using SQLite, and writes memory-mapped offset indices. No tar extraction or image download occurs in the training loop. Run preparation with a single writer; freeze the index/shards during training.
 
 Image identities determine a fixed ~1% internal validation split, keeping alternative captions for the same decoded image together. Training uses random resized crops without left/right flips; validation uses resize + center crop and fixed normalization. Corrupt samples discovered later cause the whole distributed batch/accumulation group to be dropped consistently. Counts are recorded in preparation reports, index `manifest.json`, and training events.
 
-The published upstream estimate is ~450GB of tar data at its settings; actual storage here depends on URL availability and resize settings. Reserve room for metadata, SQLite audit, index, archives and checkpoints too. Full training refuses fewer than **3 million audited training pairs** by default. Actual steps per epoch derive from the index count, not the nominal pool size. Remainders smaller than one global batch are dropped, never padded with repeated images.
+PD12M includes high-resolution originals, so raw transfer volume and stored resized-shard size differ. Actual storage depends on source images and resize settings; no full-corpus size or completion-time estimate is claimed. Reserve room for metadata, SQLite audit, index, archives and checkpoints too. Full training refuses fewer than **3 million audited training pairs** by default. Actual steps per epoch derive from the index count, not the nominal pool size. Remainders smaller than one global batch are dropped, never padded with repeated images.
 
 ### Retrieval evaluation
 
@@ -130,6 +132,8 @@ Evaluation reports image-to-text and text-to-image Recall@1/5/10, mean/median ra
 Exclusions cover original file hashes, decoded RGB hashes, known source URLs and metadata source hashes before resize/blur. Near duplicates, re-encoded copies with changed pixels, and unknown URLs can still overlap; this is identifiable-overlap filtering, not a guarantee of zero web-scale leakage.
 
 ## Modal workflow
+
+Current detached PD12M preparation: [Modal run](https://modal.com/apps/sujalkr451/main/ap-RPS83YL7VPiszxESHuuKdJ). This replaces the stopped DataComp job. The source-adapter checks passed for both datasets. Preparation does not automatically launch GPU training; run the training command after the full index is ready.
 
 Authenticate with `modal setup` if needed. These commands use your configured Modal profile. Create v2 Volumes before first use (if the names already exist, keep the existing volumes):
 
@@ -143,7 +147,7 @@ modal run modal_train.py --stage smoke --num-gpus 1
 modal run modal_train.py --stage smoke --num-gpus 4
 ```
 
-`prepare` downloads the full DataComp Small pool. `prepare-pilot` is an explicitly named 512-record acquisition check; `smoke` performs 10 steps using those **real downloaded image–caption pairs**. Neither runs synthetic training. Test fixtures remain isolated in `tests/` and the historical verification report. `--resume` continues a bounded real-data smoke segment. Use a new output directory for a new run; existing checkpoints require resume.
+`prepare` downloads the full PD12M dataset configured in config.yaml. `prepare-pilot` is an explicitly named 512-record acquisition check; `smoke` performs 10 steps using those **real downloaded image–caption pairs**. Neither runs synthetic training. Synthetic fixtures are not part of the Modal training workflow. `--resume` continues a bounded real-data smoke segment. Use a new output directory for a new run; existing checkpoints require resume.
 
 **Only after explicit approval**, prepare and launch the large-scale run:
 
@@ -152,7 +156,7 @@ modal run --detach modal_train.py --stage prepare --approve-full-run
 modal run --detach modal_train.py --stage train --num-gpus 4 --approve-full-run
 ```
 
-Wait for complete preparation, inspect `/data/datacomp_small/index/manifest.json`, and confirm usable counts before launching training. `config.yaml` proposes batch 256/GPU, LR 3e-4, AdamW weight decay 0.1, 2,000 warmup steps, 20 epochs and BF16. Tune against measured data throughput and learning curves. Capacity measurements alone do not establish a good learning rate.
+Wait for complete preparation, inspect `/data/pd12m/index/manifest.json`, and confirm usable counts before launching training. `config.yaml` proposes batch 256/GPU, LR 3e-4, AdamW weight decay 0.1, 2,000 warmup steps, 20 epochs and BF16. Tune against measured data throughput and learning curves. Capacity measurements alone do not establish a good learning rate.
 
 Each invocation stops at a checkpoint boundary after ~23 hours, below Modal's 24-hour function limit. Resume until all configured epochs complete:
 
@@ -168,7 +172,7 @@ Edit paths in a copy of `config.yaml`, prepare the evaluation set, and run:
 
 ```bash
 python -m src.prepare_evaluation --root data/evaluation
-python -m src.prepare_data --root data/datacomp_small --exclusions data/evaluation/exclusions.json
+python -m src.prepare_data --dataset pd12m --root data/pd12m --exclusions data/evaluation/exclusions.json
 python -m src.train --config local-config.yaml
 # or multi-GPU:
 torchrun --standalone --nproc_per_node=4 -m src.train --config local-config.yaml
@@ -188,7 +192,7 @@ Resumable checkpoints include both encoder state dicts, optimizer, scheduler, ep
 
 ## Checkpoints, logs, evaluation and inference
 
-Persistent files are stored under `clip-runs:/clip/checkpoints/`:
+Persistent files are stored under `clip-runs:/pd12m/checkpoints/`:
 
 ```text
 best_model.pth           # Resumable best validation model, after first validation
@@ -202,17 +206,17 @@ events.jsonl            # Per-step loss, LR, memory, throughput, counts and save
 tensorboard/            # Training curves and numeric metrics
 ```
 
-Real-data smoke runs use separate `/smoke-1/` and `/smoke-4/` directories. Earlier synthetic verification outputs remain historical artifacts only. Smoke checkpoints contain untrained/test weights and are not useful pretrained models.
+Real-data smoke runs use separate `/pd12m-smoke-1/` and `/pd12m-smoke-4/` directories. Earlier synthetic verification outputs remain historical artifacts only. Smoke checkpoints contain untrained/test weights and are not useful pretrained models.
 
 Download the full best checkpoint and lightweight inference export:
 
 ```bash
-modal volume get clip-runs clip/checkpoints/best_model.pth ./best_model.pth
-modal volume get clip-runs clip/checkpoints/last_model.pth ./last_model.pth
-modal volume get clip-runs clip/checkpoints/best_inference.pth ./best_inference.pth
-modal volume get clip-runs clip/checkpoints/inference.pth ./inference.pth
+modal volume get clip-runs pd12m/checkpoints/best_model.pth ./best_model.pth
+modal volume get clip-runs pd12m/checkpoints/last_model.pth ./last_model.pth
+modal volume get clip-runs pd12m/checkpoints/best_inference.pth ./best_inference.pth
+modal volume get clip-runs pd12m/checkpoints/inference.pth ./inference.pth
 mkdir -p downloaded
-modal volume get clip-runs clip/checkpoints downloaded
+modal volume get clip-runs pd12m/checkpoints downloaded
 python -m src.plot_history downloaded/checkpoints
 tensorboard --logdir downloaded/checkpoints/tensorboard
 ```
@@ -226,4 +230,4 @@ python -m src.evaluate --weights best_inference.pth --manifest data/evaluation/t
 
 Test retrieval should use the selected best model's lightweight export; see the validation report/runbook for artifacts from actual executed runs. Training logs include allocated peak VRAM, NVML utilization when available, images/sec, global contrastive batch, optimizer batch, processed/skipped counts, LR, gradient norms, epoch durations and estimated remaining time. Throughput includes the measured batch interval; initial warmup and checkpoint intervals distort it. Use steady-state medians, and inspect data-loader bottlenecks before scaling.
 
-Actual verification evidence and limitations are recorded in [`docs/validation.md`](docs/validation.md). File-by-file changes and operational details are in [`docs/implementation.md`](docs/implementation.md).
+The PD12M pilot source revision, status counts, timing and index fingerprint are saved on `clip-data` in `/pd12m/preparation-first-1-limit-512.json`. Full preparation writes `/pd12m/preparation-full.json`.
