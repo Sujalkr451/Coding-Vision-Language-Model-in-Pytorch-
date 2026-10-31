@@ -12,7 +12,7 @@
 
 ## About
 
-A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes convolutional image features, patch tokenization, custom multi-head self-attention, an MLP, and a transformer encoder block, alongside a synthetic dataset of colored shapes paired with captions.
+A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes a convolutional vision transformer with a class token, learned positional embeddings, and an image projection, plus custom self-attention and causal attention building blocks. A notebook explores these components alongside a synthetic dataset of colored shapes paired with captions.
 
 The intended direction is a CLIP-style model that maps images and text into a shared embedding space. **The full model and training pipeline are not implemented yet.**
 
@@ -20,7 +20,7 @@ The intended direction is a CLIP-style model that maps images and text into a sh
 
 | File | Current content |
 | --- | --- |
-| [`src/model.py`](src/model.py) | `ImageFeatureMap`, `PatchEmbedding`, `MultiHeadAttention`, `MLP`, and a pre-norm `TransformerEncoder` block with residual connections. |
+| [`src/model.py`](src/model.py) | Image feature extraction, patch embedding, self-attention, pre-norm transformer blocks, `VisionTransformerCLIP`, and `CausalMultiHeadAttention`. |
 | [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb) | Synthetic dataset, vocabulary and tokenization, train/validation loaders, a CNN image encoder prototype, a text encoder scaffold, and an image features → patches → attention experiment. |
 | [`src/dataloader.py`](src/dataloader.py) | Initial PyTorch data-loading imports. |
 | [`src/clip_loss.py`](src/clip_loss.py) | Empty placeholder for contrastive loss. |
@@ -36,7 +36,7 @@ Image → Convolutional features → Patch tokens → Image encoder ─┐
 Caption → Token IDs → Text encoder ───────────────────────────┘
 ```
 
-This describes the intended pipeline. The image-side building blocks now have forward passes, but still need to be assembled into a complete encoder with positional information and a pooled image embedding. The text encoder, paired projection heads, contrastive loss, and training loop remain unfinished.
+This describes the intended pipeline. `VisionTransformerCLIP` assembles the image branch and returns a projected image embedding. Causal attention is implemented for the text branch, but the complete text encoder, text projection, contrastive loss, and training loop remain unfinished.
 
 ### Image encoder work
 
@@ -52,8 +52,18 @@ For a **224 × 224** input, the default components have these tensor shapes:
 [B, 3, 224, 224]
   → ImageFeatureMap    → [B, 256, 28, 28]
   → PatchEmbedding     → [B, 49, 256]
-  → TransformerEncoder → [B, 49, 256]
+  → Add class token    → [B, 50, 256]
+  → Add positions      → [B, 50, 256]
+  → 12 encoder blocks  → [B, 50, 256]
+  → LayerNorm + CLS    → [B, 256]
+  → Image projection   → [B, 256]
 ```
+
+`VisionTransformerCLIP` defaults to 12 encoder blocks. It uses a learned class token and a fixed table of 50 positional embeddings, then projects the normalized class-token features to 256 dimensions. The returned embeddings are not L2-normalized. Use the default embedding dimension of 256: the patch embedding and transformer blocks currently hard-code that width. Inputs must produce 49 patch tokens; the documented input size is 224 × 224. The 64 × 64 synthetic images therefore need resizing before use with this encoder.
+
+### Text encoder work
+
+`CausalMultiHeadAttention` accepts a head count, context size, and embedding dimension. It masks future tokens before softmax and applies attention dropout. The committed implementation returns per-head context vectors shaped `[batch, heads, tokens, head_dim]`; head concatenation and an output projection remain to be added. Sequence length must not exceed the configured context size. A complete text encoder with token and positional embeddings, pooling, and projection is still pending.
 
 The notebook also contains an earlier CNN image encoder prototype that produces normalized 64-dimensional embeddings. Its `TextEncoder` currently declares layers but leaves `forward` unimplemented.
 
@@ -94,7 +104,8 @@ There is no training command, trained checkpoint, or evaluation result yet; runn
 - [x] Implement the convolutional feature map and its forward pass.
 - [x] Implement patch tokenization and custom multi-head self-attention.
 - [x] Add a GELU MLP and a pre-norm transformer encoder block with residual connections.
-- [ ] Add positional embeddings and assemble the complete image encoder.
+- [x] Add a class token, positional embeddings, and assemble the image encoder.
+- [x] Implement causal multi-head attention for the text branch.
 - [ ] Implement a text encoder and shared embedding projections.
 - [ ] Add contrastive loss and a training loop.
 - [ ] Evaluate image–text matching and retrieval.
