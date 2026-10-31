@@ -183,6 +183,51 @@ class TransformerEncoder(nn.Module):
         return x
 
 
+class VisionTransformerCLIP(nn.Module):
+    def __init__(self, embedding_dimension=256, num_layers=12):
+        super().__init__()
+
+        self.feature_map=ImageFeatureMap()
+        self.patch_embedding=PatchEmbedding()
+
+        self.cls_token = nn.Parameter(
+            torch.zeros(1, 1, embedding_dimension)* 0.02
+        )
+        self.pos_embedding = nn.Parameter(
+            torch.zeros(1, 50, embedding_dimension)* 0.02
+        )
+        self.encoder = nn.Sequential(
+            *[TransformerEncoder() for _ in range(num_layers)]
+        )
+
+        self.norm = nn.LayerNorm(embedding_dimension)
+        self.image_projection = nn.Linear(
+                             embedding_dimension,
+                            256,
+                            bias=False
+        )
+
+    def forward(self,x):
+        x= self.feature_map(x)
+        x= self.patch_embedding(x)
+
+        B=x.shape[0]
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_embedding
+        x = self.encoder(x)
+        x = self.norm(x)
+        image_features = x[:, 0, :]
+        image_embeddings = self.image_projection(image_features)
+
+        return image_embeddings
+
+
+
+
+
+
+
 
     
 
