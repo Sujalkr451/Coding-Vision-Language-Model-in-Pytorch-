@@ -135,7 +135,7 @@ class MultiHeadAttention(nn.Module):
 
 
 class PatchEmbedding(nn.Module):
-    def __init__(self, in_channels,out_channels, kernal_size, stride, padding=0, bias=False):
+    def __init__(self, in_channels=256,out_channels=256, kernal_size=4, stride=4, padding=0, bias=False):
         super().__init__()
 
         self.conv=nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(kernal_size,kernal_size),
@@ -146,6 +146,44 @@ class PatchEmbedding(nn.Module):
         x= torch.flatten(x, start_dim=2, end_dim=-1)
         x= x.transpose(1,2) #[batch, token, embedding_dimension]
         return x
+
+class MLP(nn.Module):
+    def __init__(self, embedding_dimension=256, mlp_ratio=4):
+        super().__init__()
+
+        hidden_dim = embedding_dimension * mlp_ratio
+
+        self.net = nn.Sequential(
+            nn.Linear(embedding_dimension, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, embedding_dimension)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+class TransformerEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.multiheadattention=MultiHeadAttention()
+        self.LayerNorm1=nn.LayerNorm(256)
+        self.LayerNorm2=nn.LayerNorm(256)
+        self.mlp=MLP()
+
+    def forward(self,x):
+        residual1 = x
+        x=self.LayerNorm1(x)
+        x=self.multiheadattention(x)
+        x=x+residual1
+        residual2=x
+        x=self.LayerNorm2(x)
+        x=self.mlp(x)
+        x=x+residual2
+
+        return x
+
+
+
     
 
         
