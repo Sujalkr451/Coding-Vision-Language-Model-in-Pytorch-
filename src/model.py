@@ -223,6 +223,52 @@ class VisionTransformerCLIP(nn.Module):
         return image_embeddings
 
 
+class CausalMultiHeadAttention(nn.Module):
+    def __init__(self, num_heads,context_size,embedding_dimension, qkv_bias=False, dropout=0.1):
+        super().__init__()
+        assert embedding_dimension % num_heads == 0
+
+        self.context_size = context_size
+        self.num_heads=num_heads
+        self.embedding_dimension=embedding_dimension
+        self.layer_dim=self.embedding_dimension//self.num_heads
+
+        self.W_q= nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.W_k=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.W_v=nn.Linear(embedding_dimension,embedding_dimension, bias=qkv_bias)
+        self.Dropout=nn.Dropout(dropout)
+        self.register_buffer('mask', torch.triu(torch.ones(context_size,context_size), diagonal=1))
+
+    def forward(self,x):
+
+        b,num_token,embed_dim=x.shape
+
+        queries=self.W_q(x)
+        keys=self.W_k(x)
+        values=self.W_v(x)
+
+        queries= queries.view(b,num_token,self.num_heads, self.layer_dim)
+        keys=keys.view(b,num_token,self.num_heads, self.layer_dim)
+        values=values.view(b,num_token,self.num_heads, self.layer_dim)
+
+        queries=queries.transpose(1,2)
+        keys=keys.transpose(1,2)
+        values=values.transpose(1,2)
+
+        attention_score=queries@ keys.transpose(2,3)
+
+        attention_score.masked_fill_(
+           self.mask.bool()[:num_token, :num_token],
+           float('-inf'))
+
+        attention_weights = torch.softmax(
+           attention_score / (self.layer_dim ** 0.5),
+           dim=-1)
+        attention_weights = self.Dropout(attention_weights)
+        context_vector = attention_weights @ values
+
+        return context_vector
+
 
 
 
