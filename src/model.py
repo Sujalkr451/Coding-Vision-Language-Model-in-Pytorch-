@@ -71,25 +71,22 @@ class ImageFeatureMap(nn.Module):
         x=self.Conv(x)
 
 
-class MemeTransformer(nn.Module):
-    def __init__(self, patch_size=4, qkv_bias=False, d_in=1024, d_out=1024, embedding_dimension=1024,
-                 num_head=16):
+class MultiHeadAttention(nn.Module):
+    def __init__(self,embedding_dimension=256, num_heads=4, dropout=0.1,  qkv_bias=False):
         super().__init__()
 
-        self.num_head=num_head
+        self.num_heads = num_heads
+        self.head_dim = embedding_dimension // num_heads
         self.embedding_dimension=embedding_dimension
 
-        self.patch_embed= nn.Conv2d(in_channels=256, out_channels=256,
-                                    stride=4, kernel_size=(4,4), padding=0, bias=True)
-        self.w_k=nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.w_q=nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.w_v=nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.pos_embedding=nn.Parameter(torch.arange(1, embedding_dimension))
+        self.w_k=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.w_q=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.w_v=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.Dropout=nn.Dropout(dropout)
 
     def forward(self,x):
 
-        layer_dim=(self.embedding_dimension//self.num_head)
-        batch, token, embedding_dim=x.shape
+        b, num_tokens, d_in = x.shape
 
         keys=self.w_k(x)
         queries=self.w_q(x)
@@ -98,9 +95,41 @@ class MemeTransformer(nn.Module):
         implementing multi-head attention
         """
         #[batch, token, num_head, layer_dim]
-        keys= keys.view(batch, token, self.num_head,layer_dim)
-        values=values.view(batch,token,self.num_head,layer_dim)
-        queries=queries.view(batch,token, self.num_head,layer_dim)
+        keys= keys.view(b, num_tokens, self.num_heads,self.head_dim)
+        values=values.view(b, num_tokens, self.num_heads,self.head_dim)
+        queries=queries.view(b, num_tokens, self.num_heads,self.head_dim)
+     
+        #[batch, token, num_head, layer_dim] --> [batch,num_heads,num_tokens, head_dim]
+
+        keys=keys.transpose(1,2)
+        values=values.transpose(1,2)
+        queries=queries.transpose(1,2)
+
+        attention_score= queries @ keys.T
+        atention_weights= torch.softmax((attention_score/keys.shape[-1]**0.5), dim=-1)
+        attention_weights=self.Dropout(attention_weights)
+
+        context_vector= attention_weights@ values
+
+        context_vector= context_vector.contiguous().view(b, num_tokens, self.embedding_dimension)
+
+        return context_vector
+
+
+class PatchEmbedding(nn.Module):
+    def __init__(self, in_channels,out_channels, kernal_size, stride, padding=0, bias=False):
+        super().__init__()
+
+        self.conv=nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(kernal_size,kernal_size),
+                  stride=stride, padding=padding , bias=bias)
+
+    def forward(self,x ):
+        x=self.conv(x)
+        x= torch.flatten(x, start_dim=2, end_dim=-1)
+        x= x.transpose(1,2) #[batch, token, embedding_dimension]
+        return x
+    
+
         
 
         
