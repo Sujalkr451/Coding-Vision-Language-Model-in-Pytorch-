@@ -63,6 +63,10 @@ For a **224 × 224** input, the default components have these tensor shapes:
 
 ### Text encoder work
 
+<p align="center">
+  <img src="assets/TextTransformer.svg" alt="Text transformer architecture diagram" width="100%" />
+</p>
+
 `CausalMultiHeadAttention` accepts a head count, context size, and embedding dimension. It masks future tokens before softmax and applies attention dropout. The committed implementation returns per-head context vectors shaped `[batch, heads, tokens, head_dim]`; head concatenation and an output projection remain to be added. Sequence length must not exceed the configured context size. A complete text encoder with token and positional embeddings, pooling, and projection is still pending.
 
 The notebook also contains an earlier CNN image encoder prototype that produces normalized 64-dimensional embeddings. Its `TextEncoder` currently declares layers but leaves `forward` unimplemented.
