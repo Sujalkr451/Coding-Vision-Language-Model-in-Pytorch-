@@ -41,7 +41,7 @@ class ImageFeatureMap(nn.Module):
 
             #PointWise Conv: 128 -> 128 channels 
             nn.Conv2d(in_channels=128, out_channels=128,
-                      stride=1, groups=1, bias=False, padding=1, kernel_size=(1,1)), 
+                      stride=1, groups=1, bias=False, padding=0, kernel_size=(1,1)), 
             nn.BatchNorm2d(128), 
             nn.ReLU(inplace=True), 
 
@@ -70,48 +70,66 @@ class ImageFeatureMap(nn.Module):
     def forward(self, x):
         x=self.Conv(x)
 
+        return x
+
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self,embedding_dimension=256, num_heads=4, dropout=0.1,  qkv_bias=False):
+    def __init__(
+        self,
+        embedding_dimension=256,
+        num_heads=4,
+        dropout=0.1,
+        qkv_bias=False
+    ):
         super().__init__()
+
+        assert embedding_dimension % num_heads == 0
 
         self.num_heads = num_heads
         self.head_dim = embedding_dimension // num_heads
-        self.embedding_dimension=embedding_dimension
+        self.embedding_dimension = embedding_dimension
 
-        self.w_k=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
-        self.w_q=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
-        self.w_v=nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
-        self.Dropout=nn.Dropout(dropout)
+        self.w_k = nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.w_q = nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
+        self.w_v = nn.Linear(embedding_dimension, embedding_dimension, bias=qkv_bias)
 
-    def forward(self,x):
+        self.attn_dropout = nn.Dropout(dropout)
+        self.out_proj = nn.Linear(embedding_dimension, embedding_dimension)
+        self.proj_dropout = nn.Dropout(dropout)
 
+    def forward(self, x):
         b, num_tokens, d_in = x.shape
 
-        keys=self.w_k(x)
-        queries=self.w_q(x)
-        values=self.w_v(x)
-        """
-        implementing multi-head attention
-        """
-        #[batch, token, num_head, layer_dim]
-        keys= keys.view(b, num_tokens, self.num_heads,self.head_dim)
-        values=values.view(b, num_tokens, self.num_heads,self.head_dim)
-        queries=queries.view(b, num_tokens, self.num_heads,self.head_dim)
-     
-        #[batch, token, num_head, layer_dim] --> [batch,num_heads,num_tokens, head_dim]
+        keys = self.w_k(x)
+        queries = self.w_q(x)
+        values = self.w_v(x)
 
-        keys=keys.transpose(1,2)
-        values=values.transpose(1,2)
-        queries=queries.transpose(1,2)
+        keys = keys.view(b, num_tokens, self.num_heads, self.head_dim)
+        queries = queries.view(b, num_tokens, self.num_heads, self.head_dim)
+        values = values.view(b, num_tokens, self.num_heads, self.head_dim)
 
-        attention_score= queries @ keys.T
-        atention_weights= torch.softmax((attention_score/keys.shape[-1]**0.5), dim=-1)
-        attention_weights=self.Dropout(attention_weights)
+        keys = keys.transpose(1, 2)
+        queries = queries.transpose(1, 2)
+        values = values.transpose(1, 2)
 
-        context_vector= attention_weights@ values
+        attention_score = queries @ keys.transpose(-2, -1)
 
-        context_vector= context_vector.contiguous().view(b, num_tokens, self.embedding_dimension)
+        attention_weights = torch.softmax(
+            attention_score / (self.head_dim ** 0.5),
+            dim=-1
+        )
+
+        attention_weights = self.attn_dropout(attention_weights)
+
+        context_vector = attention_weights @ values
+
+        context_vector = context_vector.transpose(1, 2).contiguous()
+        context_vector = context_vector.view(
+            b, num_tokens, self.embedding_dimension
+        )
+
+        context_vector = self.out_proj(context_vector)
+        context_vector = self.proj_dropout(context_vector)
 
         return context_vector
 
