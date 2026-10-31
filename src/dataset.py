@@ -46,10 +46,9 @@ def atomic_json(path, data):
 
 
 def build_index(shard_dir, output, exclusions=None, validation_permille=10):
-    """Disk-backed pair deduplication and decoded-image validation before training.
+    """Audit and deduplicate shards, resuming through per-shard SQLite transactions.
 
-    The sqlite transaction makes each shard resumable. Exclusions are RGB hashes
-    and original URLs exported by `src.evaluate --make-exclusions`.
+    Exclusions are image hashes and URLs from src.prepare_evaluation.
     """
     root, output = Path(shard_dir).resolve(), Path(output)
     output.mkdir(parents=True, exist_ok=True)

@@ -1,11 +1,10 @@
-"""Small synthetic fixture for infrastructure tests ONLY, never main pretraining data."""
+"""Synthetic image–caption fixture for infrastructure tests."""
 import io
-import json
 from pathlib import Path
 import tarfile
 import numpy as np
 from PIL import Image
-from .dataset import build_index, digest_id, image_digest, atomic_json
+from .dataset import build_index, digest_id, image_digest
 
 
 def create(root):
@@ -15,8 +14,7 @@ def create(root):
     shards = root / 'shards'
     shards.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(42)
-    # Random image texture and color gives unique fixture identities. Explicitly
-    # ensure at least 32 grouped hold-out examples using the index split rule.
+    # Generate enough identities to fill both sides of the hash-based split.
     train, val = [], []
     while len(train) < 320 or len(val) < 32:
         array = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)

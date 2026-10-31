@@ -7,55 +7,46 @@ class ImageFeatureMap(nn.Module):
         super().__init__()
 
         self.Conv = nn.Sequential(
-            # Standard Conv: 224 -> 112
             nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
 
-            # Depthwise Conv: 112 -> 112
             nn.Conv2d(32, 32, 3, stride=1, padding=1,
                       groups=32, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
 
-            # Pointwise Conv: 32 -> 64 channels
             nn.Conv2d(32, 64, 1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
 
-            # Depthwise Conv: 112 -> 56
             nn.Conv2d(64, 64, 3, stride=2, padding=1,
                       groups=64, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
 
-            # Pointwise Conv: 64 -> 128 channels
             nn.Conv2d(64, 128, 1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
 
-            # Depthwise Conv: 56 -> 56
             nn.Conv2d(128, 128, 3, stride=1, padding=1,
                       groups=128, bias=False),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), 
+            nn.ReLU(inplace=True),
 
-            #PointWise Conv: 128 -> 128 channels 
             nn.Conv2d(in_channels=128, out_channels=128,
-                      stride=1, groups=1, bias=False, padding=0, kernel_size=(1,1)), 
-            nn.BatchNorm2d(128), 
-            nn.ReLU(inplace=True), 
+                      stride=1, groups=1, bias=False, padding=0, kernel_size=(1,1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
 
-            #DepthWise Conv 128 -> 128 channels
 
-            nn.Conv2d(in_channels=128, out_channels=128, groups=128, 
-                      stride=2, padding=1, bias=False, kernel_size=(3,3)), 
-            nn.BatchNorm2d(128), 
-            nn.ReLU(inplace=True), 
+            nn.Conv2d(in_channels=128, out_channels=128, groups=128,
+                      stride=2, padding=1, bias=False, kernel_size=(3,3)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
 
 
-            #Pointwise Conv 128 -> 256 channels, 56x56 -> 28x28 
             nn.Conv2d(
                    in_channels=128,
                    out_channels=256,
@@ -244,7 +235,7 @@ class CausalMultiHeadAttention(nn.Module):
         assert num_token <= self.context_size, \
         "Sequence length exceeds context_size"
 
-        
+
 
         queries=self.W_q(x)
         keys=self.W_k(x)
@@ -308,7 +299,7 @@ class TextEncoder(nn.Module):
                                           embedding_dim=embedding_dimension)
         self.TextTransformerBlock=nn.Sequential(*[TextTransformerEncoder(embedding_dimension, num_heads, context_size) for _ in range(num_layers)]
                                                 )
-        
+
         self.position_embedding = nn.Parameter(
                                            torch.randn(1, context_size, embedding_dimension) * 0.02
         )
