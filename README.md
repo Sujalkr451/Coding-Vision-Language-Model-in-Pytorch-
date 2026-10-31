@@ -12,7 +12,7 @@
 
 ## About
 
-A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes a convolutional vision transformer with a class token, learned positional embeddings, and an image projection, plus custom self-attention and causal attention building blocks. A notebook explores these components alongside a synthetic dataset of colored shapes paired with captions.
+A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes a convolutional vision transformer with a class token, learned positional embeddings, and an image projection, and a causal text transformer with token embeddings, learned positional embeddings, end-of-text pooling, and a text projection. A notebook explores these components alongside a synthetic dataset of colored shapes paired with captions.
 
 The intended direction is a CLIP-style model that maps images and text into a shared embedding space. **The full model and training pipeline are not implemented yet.**
 
@@ -20,7 +20,9 @@ The intended direction is a CLIP-style model that maps images and text into a sh
 
 | File | Current content |
 | --- | --- |
-| [`src/model.py`](src/model.py) | Image feature extraction, patch embedding, self-attention, pre-norm transformer blocks, `VisionTransformerCLIP`, and `CausalMultiHeadAttention`. |
+| [`src/model_arch.py`](src/model_arch.py) | Image feature extraction, patch embedding, attention, `VisionTransformerCLIP`, `TextTransformerEncoder`, and `TextEncoder`. |
+| [`src/model.py`](src/model.py) | Empty placeholder for assembling the paired model. |
+| [`src/tokenization.py`](src/tokenization.py) | Initial `tiktoken` import; tokenizer implementation pending. |
 | [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb) | Synthetic dataset, vocabulary and tokenization, train/validation loaders, a CNN image encoder prototype, a text encoder scaffold, and an image features → patches → attention experiment. |
 | [`src/dataloader.py`](src/dataloader.py) | Initial PyTorch data-loading imports. |
 | [`src/clip_loss.py`](src/clip_loss.py) | Empty placeholder for contrastive loss. |
@@ -36,7 +38,7 @@ Image → Convolutional features → Patch tokens → Image encoder ─┐
 Caption → Token IDs → Text encoder ───────────────────────────┘
 ```
 
-This describes the intended pipeline. `VisionTransformerCLIP` assembles the image branch and returns a projected image embedding. Causal attention is implemented for the text branch, but the complete text encoder, text projection, contrastive loss, and training loop remain unfinished.
+This describes the intended pipeline. `VisionTransformerCLIP` assembles the image branch and returns a projected image embedding. `TextEncoder` assembles the text branch and also returns a 256-dimensional embedding. Pairing the encoders, normalizing embeddings for similarity scoring, implementing compatible tokenization, contrastive loss, and training remain unfinished.
 
 ### Image encoder work
 
@@ -67,7 +69,22 @@ For a **224 × 224** input, the default components have these tensor shapes:
   <img src="assets/TextTransformer.svg" alt="Text transformer architecture diagram" width="100%" />
 </p>
 
-`CausalMultiHeadAttention` accepts a head count, context size, and embedding dimension. It masks future tokens before softmax and applies attention dropout. The committed implementation returns per-head context vectors shaped `[batch, heads, tokens, head_dim]`; head concatenation and an output projection remain to be added. Sequence length must not exceed the configured context size. A complete text encoder with token and positional embeddings, pooling, and projection is still pending.
+`CausalMultiHeadAttention` defaults to **4 heads**, **77 context tokens**, and **256 embedding dimensions**. It masks future tokens before softmax, applies attention dropout, concatenates heads, and applies an output projection and projection dropout. Its output has shape `[batch, tokens, 256]`.
+
+`TextTransformerEncoder` adds pre-norm attention and MLP sublayers with residual connections. `TextEncoder` stacks **6 blocks** by default, using a **49,408-token vocabulary**, learned positional embeddings, final layer normalization, end-of-text pooling, and a projection to 256 dimensions.
+
+```text
+Token IDs             → [B, T]
+  → Token + positions → [B, T, 256]
+  → 6 causal blocks   → [B, T, 256]
+  → LayerNorm         → [B, T, 256]
+  → End-of-text pool  → [B, 256]
+  → Text projection   → [B, 256]
+```
+
+Use the default width of 256 and sequences of at most 77 tokens: the internal blocks currently use fixed defaults, and the `num_heads` argument on `TextEncoder` is not passed through. Each sequence must contain end-of-text token **49407**; pooling selects its first occurrence and falls back to position zero if it is absent. Returned embeddings are not L2-normalized.
+
+Compatible tokenization is still pending. The notebook's small word-level vocabulary and `[CLS]` token do not provide the end-of-text convention expected by this encoder. `src/tokenization.py` currently only imports `tiktoken`; that import alone does not configure a compatible tokenizer.
 
 The notebook also contains an earlier CNN image encoder prototype that produces normalized 64-dimensional embeddings. Its `TextEncoder` currently declares layers but leaves `forward` unimplemented.
 
@@ -110,7 +127,8 @@ There is no training command, trained checkpoint, or evaluation result yet; runn
 - [x] Add a GELU MLP and a pre-norm transformer encoder block with residual connections.
 - [x] Add a class token, positional embeddings, and assemble the image encoder.
 - [x] Implement causal multi-head attention for the text branch.
-- [ ] Implement a text encoder and shared embedding projections.
+- [x] Implement a causal text encoder with end-of-text pooling and a 256-dimensional projection.
+- [ ] Implement compatible tokenization and connect both encoders for image–text similarity.
 - [ ] Add contrastive loss and a training loop.
 - [ ] Evaluate image–text matching and retrieval.
 
