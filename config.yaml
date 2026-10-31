@@ -1,0 +1,43 @@
+model:
+  image_layers: 12
+  text_layers: 6
+  embedding_dimension: 256
+  context_size: 77
+  vocab_size: 49408
+  num_heads: 4
+training:
+  epochs: 20
+  batch_size_per_gpu: 256
+  learning_rate: 0.0003
+  weight_decay: 0.1
+  warmup_steps: 2000
+  precision: bf16
+  gradient_clip: 1.0
+  gradient_accumulation: 1
+  seed: 42
+  temperature: 0.07
+  num_workers: 8
+  cpu_threads: 4
+  fused_optimizer: true
+  channels_last: true
+  checkpoint_steps: 250
+  max_steps: 0
+  max_runtime_seconds: 82800
+  allow_small_dataset: false
+dataset:
+  name: datacomp_small
+  source_url: https://huggingface.co/datasets/mlfoundations/datacomp_small
+  metadata_url: https://huggingface.co/datasets/mlfoundations/datacomp_small/tree/main
+  target_pairs: 12800000
+  minimum_usable_pairs: 3000000
+  image_size: 224
+  context_length: 77
+  index_dir: /data/datacomp_small/index
+  tokenizer_cache: /data/tokenizer
+evaluation:
+  validation_manifest: /data/evaluation/val.json
+  test_manifest: /data/evaluation/test.json
+output_dir: /runs/clip/checkpoints
+modal:
+  gpu: H100
+  num_gpus: 4

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class ImageFeatureMap(nn.Module):
     def __init__(self):
@@ -112,16 +113,10 @@ class MultiHeadAttention(nn.Module):
         queries = queries.transpose(1, 2)
         values = values.transpose(1, 2)
 
-        attention_score = queries @ keys.transpose(-2, -1)
-
-        attention_weights = torch.softmax(
-            attention_score / (self.head_dim ** 0.5),
-            dim=-1
+        context_vector = F.scaled_dot_product_attention(
+            queries, keys, values,
+            dropout_p=self.attn_dropout.p if self.training else 0.0,
         )
-
-        attention_weights = self.attn_dropout(attention_weights)
-
-        context_vector = attention_weights @ values
 
         context_vector = context_vector.transpose(1, 2).contiguous()
         context_vector = context_vector.view(
@@ -187,6 +182,8 @@ class VisionTransformerCLIP(nn.Module):
     def __init__(self, embedding_dimension=256, num_layers=12):
         super().__init__()
 
+        if embedding_dimension != 256:
+            raise ValueError("The custom vision encoder requires width 256")
         self.feature_map=ImageFeatureMap()
         self.patch_embedding=PatchEmbedding()
 
@@ -261,18 +258,10 @@ class CausalMultiHeadAttention(nn.Module):
         keys=keys.transpose(1,2)
         values=values.transpose(1,2)
 
-        attention_score=queries@ keys.transpose(2,3)
-        attention_score = attention_score / (self.layer_dim ** 0.5)
-
-        attention_score.masked_fill_(
-           self.mask.bool()[:num_token, :num_token],
-           float('-inf'))
-
-        attention_weights = torch.softmax(
-           attention_score,
-           dim=-1)
-        attention_weights = self.Dropout(attention_weights)
-        context_vector = attention_weights @ values
+        context_vector = F.scaled_dot_product_attention(
+            queries, keys, values, is_causal=True,
+            dropout_p=self.Dropout.p if self.training else 0.0,
+        )
 
         context_vector = context_vector.transpose(1, 2).contiguous()
         context_vector = context_vector.view(b, num_token, self.embedding_dimension)
@@ -282,13 +271,13 @@ class CausalMultiHeadAttention(nn.Module):
         return context_vector
 
 class TextTransformerEncoder(nn.Module):
-    def __init__(self, embedding_dimension=256):
+    def __init__(self, embedding_dimension=256, num_heads=4, context_size=77):
         super().__init__()
 
         self.LayerNorm1=nn.LayerNorm(embedding_dimension)
         self.LayerNorm2=nn.LayerNorm(embedding_dimension)
-        self.causal_multi_head_attention=CausalMultiHeadAttention()
-        self.mlp=MLP()
+        self.causal_multi_head_attention=CausalMultiHeadAttention(num_heads, context_size, embedding_dimension)
+        self.mlp=MLP(embedding_dimension)
 
     def forward(self,x):
         residual1=x
@@ -311,10 +300,13 @@ class TextEncoder(nn.Module):
                 num_layers = 6):
         super().__init__()
         self.eos_token_id = 49407
+        self.context_size = context_size
+        if vocab_size <= self.eos_token_id:
+            raise ValueError("Vocabulary must include CLIP EOS token 49407")
 
         self.token_embedding=nn.Embedding(num_embeddings=vocab_size,
                                           embedding_dim=embedding_dimension)
-        self.TextTransformerBlock=nn.Sequential(*[TextTransformerEncoder() for _ in range(num_layers)]
+        self.TextTransformerBlock=nn.Sequential(*[TextTransformerEncoder(embedding_dimension, num_heads, context_size) for _ in range(num_layers)]
                                                 )
         
         self.position_embedding = nn.Parameter(
@@ -330,6 +322,10 @@ class TextEncoder(nn.Module):
     def forward(self,x):
         token_ids = x
         B, T = x.shape
+        if not 1 <= T <= self.context_size:
+            raise ValueError("Text length exceeds configured context")
+        if not (token_ids == self.eos_token_id).any(dim=1).all():
+            raise ValueError("Each caption must contain CLIP EOS token 49407")
         x=self.token_embedding(x)
         x = x + self.position_embedding[:, :T, :]
         x = self.TextTransformerBlock(x)
@@ -339,24 +335,3 @@ class TextEncoder(nn.Module):
         x = self.text_projection(x)
 
         return x
-
-
-
-        
-
-
-
-
-
-    
-
-        
-
-        
-
-
-
-
-
-
-

@@ -10,128 +10,220 @@
   <img src="https://img.shields.io/badge/status-work_in_progress-e9b44c?style=flat-square" alt="Work in progress" />
 </p>
 
-## About
+## Large training dataset — DataComp Small (12.8M pairs)
 
-A learning project for implementing the pieces of a vision–language model in PyTorch. The current work includes a convolutional vision transformer with a class token, learned positional embeddings, and an image projection, and a causal text transformer with token embeddings, learned positional embeddings, end-of-text pooling, and a text projection. A notebook explores these components alongside a synthetic dataset of colored shapes paired with captions.
+- **Dataset:** [mlfoundations/datacomp_small](https://huggingface.co/datasets/mlfoundations/datacomp_small)
+- **Downloadable metadata:** [Parquet file list](https://huggingface.co/datasets/mlfoundations/datacomp_small/tree/main)
+- **Upstream download instructions:** [DataComp CommonPool](https://github.com/mlfoundations/datacomp#downloading-commonpool)
 
-The intended direction is a CLIP-style model that maps images and text into a shared embedding space. **The full model and training pipeline are not implemented yet.**
-
-## What's in the repo
-
-| File | Current content |
-| --- | --- |
-| [`src/model_arch.py`](src/model_arch.py) | Image feature extraction, patch embedding, attention, `VisionTransformerCLIP`, `TextTransformerEncoder`, and `TextEncoder`. |
-| [`src/model.py`](src/model.py) | Empty placeholder for assembling the paired model. |
-| [`src/tokenization.py`](src/tokenization.py) | Initial `tiktoken` import; tokenizer implementation pending. |
-| [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb) | Synthetic dataset, vocabulary and tokenization, train/validation loaders, a CNN image encoder prototype, a text encoder scaffold, and an image features → patches → attention experiment. |
-| [`src/dataloader.py`](src/dataloader.py) | Initial PyTorch data-loading imports. |
-| [`src/clip_loss.py`](src/clip_loss.py) | Empty placeholder for contrastive loss. |
-| [`src/train.py`](src/train.py) | Empty placeholder for training. |
-| [`src/eval.py`](src/eval.py) | Empty placeholder for evaluation. |
-| [`main.py`](main.py) | Empty entry-point placeholder. |
-
-## The model idea
-
-```text
-Image → Convolutional features → Patch tokens → Image encoder ─┐
-                                                             ├→ Shared embeddings → Contrastive loss
-Caption → Token IDs → Text encoder ───────────────────────────┘
-```
-
-This describes the intended pipeline. `VisionTransformerCLIP` assembles the image branch and returns a projected image embedding. `TextEncoder` assembles the text branch and also returns a 256-dimensional embedding. Pairing the encoders, normalizing embeddings for similarity scoring, implementing compatible tokenization, contrastive loss, and training remain unfinished.
-
-### Image encoder work
-
-`ImageFeatureMap` starts with a 3 → 32 channel convolution, then uses depthwise and pointwise convolutions to reach 256 channels. Its forward pass returns the feature map. `PatchEmbedding` applies a 4 × 4 convolution with stride 4 and converts the result into `[batch, tokens, 256]` sequences.
-
-`MultiHeadAttention` implements Q/K/V projections, scaled dot-product attention, attention dropout, head concatenation, and an output projection with dropout. The defaults are **256 embedding dimensions and 4 heads**.
-
-`MLP` expands the embedding dimension by a factor of 4, applies GELU, and projects back to 256 dimensions. `TransformerEncoder` combines pre-attention and pre-MLP layer normalization with residual connections around both sublayers.
-
-For a **224 × 224** input, the default components have these tensor shapes:
-
-```text
-[B, 3, 224, 224]
-  → ImageFeatureMap    → [B, 256, 28, 28]
-  → PatchEmbedding     → [B, 49, 256]
-  → Add class token    → [B, 50, 256]
-  → Add positions      → [B, 50, 256]
-  → 12 encoder blocks  → [B, 50, 256]
-  → LayerNorm + CLS    → [B, 256]
-  → Image projection   → [B, 256]
-```
-
-`VisionTransformerCLIP` defaults to 12 encoder blocks. It uses a learned class token and a fixed table of 50 positional embeddings, then projects the normalized class-token features to 256 dimensions. The returned embeddings are not L2-normalized. Use the default embedding dimension of 256: the patch embedding and transformer blocks currently hard-code that width. Inputs must produce 49 patch tokens; the documented input size is 224 × 224. The 64 × 64 synthetic images therefore need resizing before use with this encoder.
-
-### Text encoder work
-
-<p align="center">
-  <img src="assets/TextTransformer.svg" alt="Text transformer architecture diagram" width="100%" />
-</p>
-
-`CausalMultiHeadAttention` defaults to **4 heads**, **77 context tokens**, and **256 embedding dimensions**. It masks future tokens before softmax, applies attention dropout, concatenates heads, and applies an output projection and projection dropout. Its output has shape `[batch, tokens, 256]`.
-
-`TextTransformerEncoder` adds pre-norm attention and MLP sublayers with residual connections. `TextEncoder` stacks **6 blocks** by default, using a **49,408-token vocabulary**, learned positional embeddings, final layer normalization, end-of-text pooling, and a projection to 256 dimensions.
-
-```text
-Token IDs             → [B, T]
-  → Token + positions → [B, T, 256]
-  → 6 causal blocks   → [B, T, 256]
-  → LayerNorm         → [B, T, 256]
-  → End-of-text pool  → [B, 256]
-  → Text projection   → [B, 256]
-```
-
-Use the default width of 256 and sequences of at most 77 tokens: the internal blocks currently use fixed defaults, and the `num_heads` argument on `TextEncoder` is not passed through. Each sequence must contain end-of-text token **49407**; pooling selects its first occurrence and falls back to position zero if it is absent. Returned embeddings are not L2-normalized.
-
-Compatible tokenization is still pending. The notebook's small word-level vocabulary and `[CLS]` token do not provide the end-of-text convention expected by this encoder. `src/tokenization.py` currently only imports `tiktoken`; that import alone does not configure a compatible tokenizer.
-
-The notebook also contains an earlier CNN image encoder prototype that produces normalized 64-dimensional embeddings. Its `TextEncoder` currently declares layers but leaves `forward` unimplemented.
-
-### Synthetic image–caption data
-
-The notebook generates **243 pairs** from every combination of:
-
-- **9 colors:** red, green, blue, yellow, purple, orange, pink, brown, gray.
-- **3 shapes:** square, circle, triangle.
-- **9 positions:** left, center, right, top, bottom, and the four corners.
-
-Images are drawn at **64 × 64** pixels using Pillow and converted to channel-first float tensors scaled to `[0, 1]`. Captions such as `red circle top-left` are split into words and prepended with a `[CLS]` token. No external dataset download is needed for this experiment.
-
-The notebook splits the dataset into **194 training pairs and 49 validation pairs**, with a batch size of 12. Its separate attention experiment uses random 224 × 224 inputs.
-
-## Explore locally
-
-Use a Python environment compatible with PyTorch. There is no pinned dependency file yet.
+This is the real image–caption corpus configured for this VLM. The metadata provides image URLs; preparation downloads the available images into reusable tar shards. Actual usable counts are audited before training. The main Modal launcher has **no synthetic training stage**.
 
 ```bash
-git clone https://github.com/Sujalkr451/Coding-Vision-Language-Model-in-Pytorch-.git
-cd Coding-Vision-Language-Model-in-Pytorch-
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install torch numpy pillow matplotlib jupyter
-jupyter notebook experimentation/vlm.ipynb
+# Prepare held-out evaluation data once:
+modal run modal_train.py --stage prepare-eval
+# Download, audit, and pre-tokenize the full real dataset (after approval):
+modal run --detach modal_train.py --stage prepare --approve-full-run
+# When preparation finishes, train your original model on 4 H100s:
+modal run --detach modal_train.py --stage train --num-gpus 4 --approve-full-run
 ```
 
-On Windows, activate the environment with `.venv\Scripts\activate` instead. Run the notebook cells in order to generate the dataset and inspect the image tensors, captions, and vocabulary. The notebook selects Apple MPS when available and otherwise uses the CPU.
+### Faster training path
 
-There is no training command, trained checkpoint, or evaluation result yet; running `main.py` currently does nothing.
+- PyTorch scaled dot-product attention uses optimized CUDA kernels (including FlashAttention where supported) with your existing Q/K/V projections and causal masking.
+- Fused CUDA AdamW, BF16, TF32, and channels-last CNN memory layout reduce GPU overhead.
+- Captions are tokenized **once during preparation** and cached as compact memory-mapped arrays; training reuses them every epoch.
+- Eight metadata downloads run concurrently; persistent tar shards, pinned-memory loading, prefetching and distributed sampling avoid repeated image downloads.
+- Defaults use **256 pairs/GPU × 4 H100s = 1,024 contrastive pairs per step**. The full pool and H100 run are explicit commands, rather than a small test being the default.
 
-## Next steps
+The earlier measured throughput predates these optimizations. No additional GPU run or new speedup number is claimed for this update.
 
-- [x] Generate synthetic shapes with matching captions.
-- [x] Build a vocabulary and encode captions.
-- [x] Create train/validation splits and data loaders in the notebook.
-- [x] Implement the convolutional feature map and its forward pass.
-- [x] Implement patch tokenization and custom multi-head self-attention.
-- [x] Add a GELU MLP and a pre-norm transformer encoder block with residual connections.
-- [x] Add a class token, positional embeddings, and assemble the image encoder.
-- [x] Implement causal multi-head attention for the text branch.
-- [x] Implement a causal text encoder with end-of-text pooling and a 256-dimensional projection.
-- [ ] Implement compatible tokenization and connect both encoders for image–text similarity.
-- [ ] Add contrastive loss and a training loop.
-- [ ] Evaluate image–text matching and retrieval.
+## Training the custom CLIP model
 
-## Contributing
+This project trains the original PyTorch encoders **from scratch**: a CNN feature extractor and 12-layer vision transformer, a 6-layer causal text transformer, 256-dimensional projections, 224 × 224 images, and 77-token captions. Only the `openai/clip-vit-base-patch32` **tokenizer** is downloaded; no pretrained CLIP model weights are used.
 
-This is an evolving learning project. Issues explaining bugs, tensor shapes, or implementation ideas are welcome. For code changes, describe what changed and how you checked it.
+The pipeline supports local execution and single-node PyTorch DDP on one or four Modal H100 80GB GPUs. Large-scale training has **not** been launched. Full preparation and training require `--approve-full-run`.
+
+### Repository layout
+
+| File | Responsibility |
+| --- | --- |
+| [`src/model_arch.py`](src/model_arch.py) | Original image/text encoders and transformer blocks, with numerical and configuration fixes. |
+| [`src/model.py`](src/model.py) | Pairs both encoders into one module for DDP. |
+| [`src/cache_tokens.py`](src/cache_tokens.py) | Restartable, one-time caption tokenization into compact on-disk arrays. |
+| [`src/tokenization.py`](src/tokenization.py) | Lazy, cached CLIPTokenizer with truncation, padding, and vocabulary checks. |
+| [`src/clip_loss.py`](src/clip_loss.py) | Symmetric CLIP loss, differentiable distributed gathering, duplicate positives. |
+| [`src/prepare_data.py`](src/prepare_data.py) | Pinned DataComp metadata, bounded URL downloading, retries and resume. |
+| [`src/dataset.py`](src/dataset.py) | Tar audit, disk-backed deduplication, compact offset indices, preprocessing. |
+| [`src/dataloader.py`](src/dataloader.py) | Disjoint distributed sampling, deterministic batches, cached tokenization. |
+| [`src/train.py`](src/train.py) | AdamW, warmup/cosine schedule, BF16, accumulation, clipping, monitoring. |
+| [`src/distributed.py`](src/distributed.py) | Process groups, device assignment, differentiable feature collectives. |
+| [`src/checkpoint.py`](src/checkpoint.py) | Atomic resumable checkpoints, RNG state, inference exports. |
+| [`src/prepare_evaluation.py`](src/prepare_evaluation.py) | Public COCO retrieval manifests and training exclusion hashes/URLs. |
+| [`src/validate.py`](src/validate.py) | Deterministic held-out contrastive validation loss. |
+| [`src/eval.py`](src/eval.py), [`src/evaluate.py`](src/evaluate.py) | Multiple-caption retrieval metrics and evaluation CLI. |
+| [`src/infer.py`](src/infer.py) | Image-to-caption cosine similarity using exported encoders. |
+| [`src/benchmark.py`](src/benchmark.py) | Bounded full-architecture BF16 batch-capacity probe. |
+| [`src/plot_history.py`](src/plot_history.py) | Export loss and retrieval curves from persistent logs. |
+| [`src/smoke_fixture.py`](src/smoke_fixture.py) | Synthetic infrastructure fixture; never the main training dataset. |
+| [`modal_train.py`](modal_train.py), [`config.yaml`](config.yaml) | Modal stages and configurable training settings. |
+| [`tests/`](tests/) | Architecture, loss, data, retrieval, checkpoint, training and DDP checks. |
+
+The original notebook remains in [`experimentation/vlm.ipynb`](experimentation/vlm.ipynb). Its small word-level tokenizer and unfinished prototype text encoder are separate experiments; training uses `src/`.
+
+### Architecture
+
+```text
+Images [B,3,224,224]
+ → CNN [B,256,28,28] → 4×4 patches [B,49,256]
+ → CLS + positions [B,50,256] → 12 pre-norm transformer blocks
+ → LayerNorm → CLS pooling → projection [B,256]
+
+CLIP token IDs [B,77]
+ → token + positional embeddings → 6 pre-norm causal transformer blocks
+ → LayerNorm → first EOS (49407) pooling → projection [B,256]
+
+L2 normalization → global image/text similarity → symmetric multi-positive loss
+```
+
+<p align="center">
+  <img src="assets/TextTransformer.svg" alt="Text transformer architecture diagram" width="360" />
+</p>
+
+Custom attention projections, CNN layers, residual ordering, encoder depths, and projections are retained. Fixes propagate text head/context/width configuration, reject captions without EOS, reject unsupported vision widths, and use stable scaled dot-product attention plus FP32 contrastive logits for BF16 training. The image branch still requires width 256 and 49 patch tokens. BatchNorm remains per GPU, with DDP buffer synchronization; changing GPU count changes training behavior.
+
+## Installation and local verification
+
+Use Python 3.11. Create a fresh virtual environment for the pinned runtime:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt pytest==8.3.5
+python -m pytest tests/test_pipeline.py -q
+python -m tests.ddp_worker --file-rendezvous
+python -c "from src.tokenization import tokenize; print(tokenize(['a red square'], cache_dir='data/tokenizer').shape)"
+python -m tests.resume_check
+```
+
+The file-rendezvous DDP test runs two CPU processes, compares both unique-positive and duplicate-positive gradients to a full-batch reference, and avoids hostname resolution dependencies. The resume integration check uses a short one-layer configuration; the architecture test separately checks the original full 12/6-layer encoders.
+
+For dataset preparation outside Modal, install `requirements-prep.txt` too. Run modules from the repository root with `python -m src.<module>`.
+
+## Dataset: DataComp Small
+
+The primary source is [DataComp Small / CommonPool](https://huggingface.co/datasets/mlfoundations/datacomp_small), nominally **12.8 million URL–caption records**. Its public Parquet metadata contains `url`, `text`, `uid`, source hashes and face boxes. Metadata is **not downloaded images**, and live URL attrition means usable pairs will be fewer than 12.8M.
+
+The [official downloader](https://github.com/mlfoundations/datacomp/blob/main/download_upstream.py) uses img2dataset and WebDataset tar output. This implementation follows that route, pins the metadata revision, preserves face-box blurring and default publisher opt-out headers, and keeps shards on `clip-data`. Metadata is labeled CC-BY-4.0; this does not relicense third-party images. Review original image rights and [DataComp documentation](https://github.com/mlfoundations/datacomp) for the intended use. Public metadata currently needs no access approval; unreachable image URLs are recorded as failures, never assumed usable. No alternative corpus is silently substituted.
+
+Preparation uses bounded parallel downloads, 15-second timeouts, two retries, and incremental shard recovery. Tar auditing decodes images, filters held-out hashes/URLs, deduplicates exact decoded-image/caption pairs using SQLite, and writes memory-mapped offset indices. No tar extraction or image download occurs in the training loop. Run preparation with a single writer; freeze the index/shards during training.
+
+Image identities determine a fixed ~1% internal validation split, keeping alternative captions for the same decoded image together. Training uses random resized crops without left/right flips; validation uses resize + center crop and fixed normalization. Corrupt samples discovered later cause the whole distributed batch/accumulation group to be dropped consistently. Counts are recorded in preparation reports, index `manifest.json`, and training events.
+
+The published upstream estimate is ~450GB of tar data at its settings; actual storage here depends on URL availability and resize settings. Reserve room for metadata, SQLite audit, index, archives and checkpoints too. Full training refuses fewer than **3 million audited training pairs** by default. Actual steps per epoch derive from the index count, not the nominal pool size. Remainders smaller than one global batch are dropped, never padded with repeated images.
+
+### Retrieval evaluation
+
+`prepare-eval` downloads the public [COCO val2017 release](https://cocodataset.org/#download), retains original license metadata, and creates a deterministic **custom** split: first 1,000 image IDs for validation and remaining images for final test (4,000 before any exact-image deduplication). This is not the Karpathy split and should not be compared as that benchmark. Every available caption is a valid positive for its image.
+
+Evaluation reports image-to-text and text-to-image Recall@1/5/10, mean/median ranks, and their mean recall. Similarity scores are computed in chunks. Best-model selection maximizes validation mean recall across both directions and all three K values. Exact decoded-image duplicates are merged before splitting. The final test split is never used for model selection. Internal validation contrastive loss uses batch negatives and is not a full-corpus retrieval metric.
+
+Exclusions cover original file hashes, decoded RGB hashes, known source URLs and metadata source hashes before resize/blur. Near duplicates, re-encoded copies with changed pixels, and unknown URLs can still overlap; this is identifiable-overlap filtering, not a guarantee of zero web-scale leakage.
+
+## Modal workflow
+
+Authenticate with `modal setup` if needed. These commands use your configured Modal profile. Create v2 Volumes before first use (if the names already exist, keep the existing volumes):
+
+```bash
+modal volume create clip-data --version=2
+modal volume create clip-runs --version=2
+modal run modal_train.py --stage prepare-eval
+modal run modal_train.py --stage prepare-pilot
+modal run modal_train.py --stage benchmark
+modal run modal_train.py --stage smoke --num-gpus 1
+modal run modal_train.py --stage smoke --num-gpus 4
+```
+
+`prepare` downloads the full DataComp Small pool. `prepare-pilot` is an explicitly named 512-record acquisition check; `smoke` performs 10 steps using those **real downloaded image–caption pairs**. Neither runs synthetic training. Test fixtures remain isolated in `tests/` and the historical verification report. `--resume` continues a bounded real-data smoke segment. Use a new output directory for a new run; existing checkpoints require resume.
+
+**Only after explicit approval**, prepare and launch the large-scale run:
+
+```bash
+modal run --detach modal_train.py --stage prepare --approve-full-run
+modal run --detach modal_train.py --stage train --num-gpus 4 --approve-full-run
+```
+
+Wait for complete preparation, inspect `/data/datacomp_small/index/manifest.json`, and confirm usable counts before launching training. `config.yaml` proposes batch 256/GPU, LR 3e-4, AdamW weight decay 0.1, 2,000 warmup steps, 20 epochs and BF16. Tune against measured data throughput and learning curves. Capacity measurements alone do not establish a good learning rate.
+
+Each invocation stops at a checkpoint boundary after ~23 hours, below Modal's 24-hour function limit. Resume until all configured epochs complete:
+
+```bash
+modal run --detach modal_train.py --stage train --num-gpus 4 --approve-full-run --resume
+```
+
+There is no automatic indefinite retry loop that can spend credits unattended. Periodic checkpoints limit lost work on interruption. One process owns writes; files close before explicit Volume commit, with a final commit on function exit.
+
+### Local / other GPU servers
+
+Edit paths in a copy of `config.yaml`, prepare the evaluation set, and run:
+
+```bash
+python -m src.prepare_evaluation --root data/evaluation
+python -m src.prepare_data --root data/datacomp_small --exclusions data/evaluation/exclusions.json
+python -m src.train --config local-config.yaml
+# or multi-GPU:
+torchrun --standalone --nproc_per_node=4 -m src.train --config local-config.yaml
+# resume:
+torchrun --standalone --nproc_per_node=4 -m src.train --config local-config.yaml --resume runs/clip/checkpoints/last_model.pth
+```
+
+Set `dataset.index_dir`, `dataset.tokenizer_cache`, `evaluation.validation_manifest` and `output_dir` to your local paths. CPU verification uses `precision: fp32` and small batches. `main.py` remains an unused placeholder; the executable training entrypoint is `src.train`.
+
+## Distributed objective and resume semantics
+
+Each GPU owns disjoint sample indices. Equal-sized feature batches are gathered with autograd; each rank computes local-anchor/global-candidate image-to-text and text-to-image losses. Autograd collectives sum remote contributions before DDP averages parameter gradients. Repeated image identities or identical truncated token sequences are positives rather than false negatives. Image/caption pair deduplication is exact; perceptual deduplication is not implemented.
+
+Gradient accumulation averages independent microbatch contrastive objectives. It increases samples per optimizer update **without** increasing the negative pool beyond `batch_size_per_gpu × world_size`. Final partial accumulation groups are normalized by their actual size. Checkpoints are saved only at completed optimizer boundaries.
+
+Resumable checkpoints include both encoder state dicts, optimizer, scheduler, epoch, next batch, global step, best metric, configuration, per-rank RNG states, processed samples, index fingerprint and history. BF16 needs no GradScaler (`scaler: null`). Exact resume requires the same training/model configuration, process count and immutable index. Sampler order and per-sample crops reproduce the next batch; recreating workers does not consume the model's dropout RNG. A changed world size requires a new training run rather than silent stream reuse. GPU kernels can still be nondeterministic.
+
+## Checkpoints, logs, evaluation and inference
+
+Persistent files are stored under `clip-runs:/clip/checkpoints/`:
+
+```text
+best_model.pth           # Resumable best validation model, after first validation
+last_model.pth           # Most recent resumable optimizer boundary
+epoch_005.pth            # Every fifth completed epoch
+epoch_010.pth
+best_inference.pth       # Lightweight best validation model
+inference.pth            # Lightweight latest encoder weights + model configuration
+training_history.json   # Epoch validation history
+events.jsonl            # Per-step loss, LR, memory, throughput, counts and saves
+tensorboard/            # Training curves and numeric metrics
+```
+
+Real-data smoke runs use separate `/smoke-1/` and `/smoke-4/` directories. Earlier synthetic verification outputs remain historical artifacts only. Smoke checkpoints contain untrained/test weights and are not useful pretrained models.
+
+Download the full best checkpoint and lightweight inference export:
+
+```bash
+modal volume get clip-runs clip/checkpoints/best_model.pth ./best_model.pth
+modal volume get clip-runs clip/checkpoints/last_model.pth ./last_model.pth
+modal volume get clip-runs clip/checkpoints/best_inference.pth ./best_inference.pth
+modal volume get clip-runs clip/checkpoints/inference.pth ./inference.pth
+mkdir -p downloaded
+modal volume get clip-runs clip/checkpoints downloaded
+python -m src.plot_history downloaded/checkpoints
+tensorboard --logdir downloaded/checkpoints/tensorboard
+```
+
+Only load trusted resumable checkpoints: optimizer/RNG state uses Python pickle. Lightweight inference exports load with `weights_only=True`. Cosine-similarity inference:
+
+```bash
+python -m src.infer --weights best_inference.pth --image example.jpg --captions "a red square" "a blue circle"
+python -m src.evaluate --weights best_inference.pth --manifest data/evaluation/test.json --output test-results.json
+```
+
+Test retrieval should use the selected best model's lightweight export; see the validation report/runbook for artifacts from actual executed runs. Training logs include allocated peak VRAM, NVML utilization when available, images/sec, global contrastive batch, optimizer batch, processed/skipped counts, LR, gradient norms, epoch durations and estimated remaining time. Throughput includes the measured batch interval; initial warmup and checkpoint intervals distort it. Use steady-state medians, and inspect data-loader bottlenecks before scaling.
+
+Actual verification evidence and limitations are recorded in [`docs/validation.md`](docs/validation.md). File-by-file changes and operational details are in [`docs/implementation.md`](docs/implementation.md).
