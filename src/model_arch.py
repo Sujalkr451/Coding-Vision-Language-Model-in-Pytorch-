@@ -191,10 +191,10 @@ class VisionTransformerCLIP(nn.Module):
         self.patch_embedding=PatchEmbedding()
 
         self.cls_token = nn.Parameter(
-            torch.zeros(1, 1, embedding_dimension)* 0.02
+            torch.randn(1, 1, embedding_dimension)* 0.02
         )
         self.pos_embedding = nn.Parameter(
-            torch.zeros(1, 50, embedding_dimension)* 0.02
+            torch.randn(1, 50, embedding_dimension)* 0.02
         )
         self.encoder = nn.Sequential(
             *[TransformerEncoder() for _ in range(num_layers)]
@@ -310,6 +310,7 @@ class TextEncoder(nn.Module):
                 num_heads = 4,
                 num_layers = 6):
         super().__init__()
+        self.eos_token_id = 49407
 
         self.token_embedding=nn.Embedding(num_embeddings=vocab_size,
                                           embedding_dim=embedding_dimension)
